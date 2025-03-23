@@ -44,6 +44,11 @@ interface GameState {
   currentOperation: Operation | null;
   gameActive: boolean;
   lastReset: object | null;
+  thinkingMode?: boolean;
+  thinkingUserId?: string | null;
+  thinkingUserName?: string | null;
+  timerEndTime: number | null; // Timestamp when the timer should end
+  thinkingEndTime: number | null; // Timestamp when thinking time should end
 }
 
 interface Users {
@@ -66,6 +71,179 @@ function App() {
   const [localSelectedCard, setLocalSelectedCard] = useState<string | null>(null);
   const [debugMode, setDebugMode] = useState<boolean>(true);
   const [debugMessages, setDebugMessages] = useState<string[]>([]);
+  const [resetTimerId, setResetTimerId] = useState<NodeJS.Timeout | null>(null);
+  const [timeUntilReset, setTimeUntilReset] = useState<number>(30);
+  const [thinkingMode, setThinkingMode] = useState<boolean>(false);
+  const [thinkingTimeLeft, setThinkingTimeLeft] = useState<number>(10);
+  const [thinkingTimerId, setThinkingTimerId] = useState<NodeJS.Timeout | null>(null);
+  const [gameTimerActive, setGameTimerActive] = useState<boolean>(false);
+  const [savedTimeUntilReset, setSavedTimeUntilReset] = useState<number>(30);
+
+  // Add this function to handle thinking time
+  const startThinkingTime = (): void => {
+    if (!currentUser || !gameState || !gameState.gameActive) return;
+    if (gameState.thinkingMode) return;
+    
+    debugLog(`${currentUser.name} started thinking time (10 seconds)`);
+    
+    // Calculate end times based on server time + durations
+    const now = Date.now();
+    const thinkingEndTime = now + 10000; // 10 seconds
+    
+    // Save the current game timer remaining time before pausing
+    const remainingGameTime = gameState.timerEndTime ? 
+      Math.max(0, Math.ceil((gameState.timerEndTime - now) / 1000)) : 
+      30;
+    
+    setSavedTimeUntilReset(remainingGameTime);
+    
+    // Update Firebase first
+    update(ref(database, 'gameState'), { 
+      thinkingMode: true,
+      thinkingUserId: currentUser.id,
+      thinkingUserName: currentUser.name,
+      thinkingEndTime: thinkingEndTime
+    }).then(() => {
+      debugLog("Thinking mode activated");
+      setThinkingTimeLeft(10);
+      setThinkingMode(true);
+    }).catch(error => debugLog(`Error activating thinking mode: ${error.message}`));
+  };
+
+  const endThinkingTime = (): void => {
+    if (!currentUser || !gameState) return;
+    
+    debugLog("Ending thinking time");
+    
+    // Clear thinking timer
+    if (thinkingTimerId) {
+      clearInterval(thinkingTimerId);
+      setThinkingTimerId(null);
+    }
+    
+    // Calculate new game timer end time based on saved time
+    const now = Date.now();
+    const newTimerEndTime = now + (savedTimeUntilReset * 1000);
+    
+    // Update Firebase
+    update(ref(database, 'gameState'), { 
+      thinkingMode: false,
+      thinkingUserId: null,
+      thinkingUserName: null,
+      thinkingEndTime: null,
+      timerEndTime: newTimerEndTime
+    }).then(() => {
+      debugLog("Thinking mode deactivated, game timer restarted");
+      setThinkingMode(false);
+      setGameTimerActive(true);
+    }).catch(error => debugLog(`Error deactivating thinking mode: ${error.message}`));
+  };
+  
+
+  useEffect(() => {
+    // Skip if no game state or user yet
+    if (!gameState || !currentUser) return;
+  
+    // Clean up on unmount or when game becomes inactive
+    if (!gameState.gameActive) {
+      if (resetTimerId) {
+        clearInterval(resetTimerId);
+        setResetTimerId(null);
+      }
+      if (thinkingTimerId) {
+        clearInterval(thinkingTimerId);
+        setThinkingTimerId(null);
+      }
+      return;
+    }
+  
+    // Clear any existing timers
+    if (resetTimerId) {
+      clearInterval(resetTimerId);
+      setResetTimerId(null);
+    }
+    if (thinkingTimerId) {
+      clearInterval(thinkingTimerId);
+      setThinkingTimerId(null);
+    }
+  
+    // Start a single timer that updates both countdown displays
+    const timerId = setInterval(() => {
+      const now = Date.now();
+      
+      // Update game timer if not in thinking mode
+      if (!gameState.thinkingMode && gameState.timerEndTime) {
+        const secondsLeft = Math.max(0, Math.ceil((gameState.timerEndTime - now) / 1000));
+        setTimeUntilReset(secondsLeft);
+        
+        // If timer expired, reset the game (but only do this once)
+        if (secondsLeft === 0 && gameState.timerEndTime > now - 1000) {
+          debugLog("Server timer expired - resetting game");
+          resetGame();
+        }
+      }
+      
+      // Update thinking timer if in thinking mode
+      if (gameState.thinkingMode && gameState.thinkingEndTime) {
+        const thinkingSecondsLeft = Math.max(0, Math.ceil((gameState.thinkingEndTime - now) / 1000));
+        setThinkingTimeLeft(thinkingSecondsLeft);
+        
+        // If thinking timer expired, end thinking time (but only do this once)
+        if (thinkingSecondsLeft === 0 && gameState.thinkingEndTime > now - 1000) {
+          debugLog("Thinking timer expired");
+          if (gameState.thinkingUserId === currentUser.id) {
+            endThinkingTime();
+          }
+        }
+      }
+    }, 200); // Check more frequently than 1 second to avoid missing expirations
+    
+    setResetTimerId(timerId);
+  
+    return () => {
+      if (timerId) clearInterval(timerId);
+    };
+  }, [gameState, currentUser]);
+
+  // Add this at the top of your component where other useEffect hooks are
+  useEffect(() => {
+    // Skip if no database connection yet
+    if (!database) return;
+    
+    const usersRef = ref(database, 'users');
+    debugLog("Setting up listener for user count");
+    
+    const unsubscribe = onValue(usersRef, (snapshot) => {
+      // Check if users exist in the database
+      if (!snapshot.exists() || Object.keys(snapshot.val()).length === 0) {
+        debugLog("No users online, cleaning up game state");
+        cleanupGameState();
+      }
+    });
+    
+    return () => {
+      debugLog("Cleaning up user count listener");
+      unsubscribe();
+    };
+  }, [database]);
+
+  // Add this function to your component
+  const cleanupGameState = (): void => {
+    // Only proceed if database is initialized
+    if (!database) return;
+    
+    debugLog("Performing cleanup: Removing game state");
+    
+    // Remove the entire game state
+    remove(ref(database, 'gameState'))
+      .then(() => debugLog("Game state removed successfully"))
+      .catch(error => debugLog(`Error removing game state: ${error.message}`));
+      
+    // You could also reset instead of remove if you prefer
+    // set(ref(database, 'gameState'), null)
+    //   .then(() => debugLog("Game state reset"))
+    //   .catch(error => debugLog(`Error resetting game state: ${error.message}`));
+  };
 
   // Debug log function
   const debugLog = (message: string) => {
@@ -85,18 +263,44 @@ function App() {
         color: userColor,
         lastActive: serverTimestamp()
       };
-
+  
       debugLog(`Joining as ${username} with ID ${userId}`);
-
+  
       // Save user to Firebase
       set(ref(database, `users/${userId}`), user)
-        .then(() => debugLog("User saved to Firebase"))
+        .then(() => {
+          debugLog("User saved to Firebase");
+          setCurrentUser(user);
+          
+          // Force immediate timer start
+          debugLog("Forcing immediate timer start after joining");
+          if (resetTimerId) {
+            clearInterval(resetTimerId);
+            setResetTimerId(null);
+          }
+          
+          // Create a new timer immediately without waiting for useEffect
+          const newTimerId = setInterval(() => {
+            setTimeUntilReset(prevTime => {
+              const newTime = prevTime - 1;
+              if (newTime <= 0) {
+                debugLog("Auto-reset timer triggered");
+                resetGame();
+                return 30;
+              }
+              return newTime;
+            });
+          }, 1000);
+          
+          setResetTimerId(newTimerId);
+          setTimeUntilReset(30);
+          setGameTimerActive(true);
+          debugLog("Immediate timer started with ID: " + newTimerId);
+        })
         .catch(error => debugLog(`Error saving user: ${error.message}`));
       
       // Setup disconnect handler
       onDisconnect(ref(database, `users/${userId}`)).remove();
-      
-      setCurrentUser(user);
       
       // Check if game exists, if not initialize it
       const gameStateRef = ref(database, 'gameState');
@@ -116,6 +320,7 @@ function App() {
     const gameStateRef = ref(database, 'gameState');
     const cardsObj: { [key: string]: Card } = {};
     
+    // Generate cards as before
     for (let i = 0; i < 4; i++) {
       const cardId = `card_${i}`;
       cardsObj[cardId] = {
@@ -126,17 +331,31 @@ function App() {
       };
     }
     
+    // Set timer end time 30 seconds from now
+    const now = Date.now();
+    const timerEndTime = now + 30000; // 30 seconds
+    
     const initialGameState: GameState = {
       cards: cardsObj,
       selectedCardId: null,
       currentOperation: null,
       gameActive: true,
-      lastReset: serverTimestamp()
+      lastReset: serverTimestamp(),
+      thinkingMode: false,
+      thinkingUserId: null,
+      thinkingUserName: null,
+      timerEndTime: timerEndTime,
+      thinkingEndTime: null
     };
     
     debugLog("Initializing new game with 4 cards");
     set(gameStateRef, initialGameState)
-      .then(() => debugLog("Game initialized successfully"))
+      .then(() => {
+        debugLog("Game initialized successfully");
+        setTimeUntilReset(30);
+        setThinkingTimeLeft(10);
+        setThinkingMode(false);
+      })
       .catch(error => debugLog(`Error initializing game: ${error.message}`));
   };
 
@@ -144,14 +363,39 @@ function App() {
   const resetGame = (): void => {
     if (currentUser) {
       debugLog("Resetting game");
+      
+      // Clear all timers
+      if (resetTimerId) {
+        clearInterval(resetTimerId);
+        setResetTimerId(null);
+      }
+      if (thinkingTimerId) {
+        clearInterval(thinkingTimerId);
+        setThinkingTimerId(null);
+      }
+      
+      // Reset timer states
+      setGameTimerActive(false);
+      setTimeUntilReset(30);
+      setThinkingTimeLeft(10);
+      setThinkingMode(false);
+      
+      // Initialize new game
       initializeGame();
     }
   };
 
   // Handle card selection
   const handleCardClick = (cardId: string): void => {
+
     if (!currentUser || !gameState || !gameState.gameActive) {
       debugLog("Cannot select card: user not logged in or game not active");
+      return;
+    }
+    
+    // Check if thinking mode is active and user is not the thinking user
+    if (!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) {
+      debugLog("Cannot select card: not in thinking mode or not your thinking turn");
       return;
     }
     
@@ -274,6 +518,12 @@ function App() {
   const handleOperationClick = (operation: Operation): void => {
     if (!currentUser || !gameState || gameState.selectedCardId === null) {
       debugLog("Cannot select operation: no card selected");
+      return;
+    }
+    
+    // Only allow operation selection during thinking time of the current user
+    if (!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) {
+      debugLog("Cannot select operation: not in thinking mode or not your thinking turn");
       return;
     }
     
@@ -444,6 +694,34 @@ function App() {
             </div>
           </div>
           
+          {gameState && gameState.gameActive && (
+            <div className="timer-container">
+              <p>Game resets in: <span className="reset-timer">{timeUntilReset}</span> seconds</p>
+            </div>
+          )}
+
+          {/* Add this new thinking time UI section */}
+          {gameState && gameState.gameActive && (
+            <>
+              {gameState.thinkingMode ? (
+                <div className="thinking-mode-container">
+                  <p>
+                    <span className="thinking-user">{gameState.thinkingUserName}</span> is thinking
+                    <span className="thinking-timer"> ({thinkingTimeLeft}s)</span>
+                  </p>
+                </div>
+              ) : (
+                <button 
+                  className="thinking-button"
+                  onClick={startThinkingTime}
+                  disabled={Boolean(gameState.thinkingMode)}
+                >
+                  Take Thinking Time (10s)
+                </button>
+              )}
+            </>
+          )}
+
           {gameState ? (
             <>
               <div className="card-container">
@@ -462,12 +740,15 @@ function App() {
                 return (
                   <div 
                     key={card.id} 
-                    className={`card ${isSelectedByMe ? 'selected-by-me' : ''} ${isSelectedByOther ? 'selected-by-other' : ''}`}
+                    className={`card ${isSelectedByMe ? 'selected-by-me' : ''} ${isSelectedByOther ? 'selected-by-other' : ''} 
+                      ${(!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) ? 'blocked' : ''}`}
                     onClick={() => handleCardClick(card.id)}
                     style={{
                       ...isSelectedByOther && selectingUser ? { borderColor: selectingUser.color } : {},
                       gridRow: gridRow,
-                      gridColumn: gridColumn
+                      gridColumn: gridColumn,
+                      // Add cursor style based on interaction state
+                      cursor: (!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) ? 'not-allowed' : 'pointer'
                     }}
                   >
                     <span className="card-value">{card.value}</span>
@@ -489,30 +770,42 @@ function App() {
               
               <div className="operations">
                 <button 
-                  className={`operation-button ${gameState.currentOperation === 'add' ? 'active' : ''}`}
+                  className={`operation-button ${gameState.currentOperation === 'add' ? 'active' : ''} ${(!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) ? 'blocked' : ''}`}
                   onClick={() => handleOperationClick('add')}
-                  disabled={Boolean(!gameState.selectedCardId || (gameState.selectedCardId && gameState.cards[gameState.selectedCardId]?.selectedBy !== currentUser.id))}
+                  disabled={Boolean(!gameState.selectedCardId || 
+                                  (gameState.selectedCardId && gameState.cards[gameState.selectedCardId]?.selectedBy !== currentUser.id) ||
+                                  !gameState.thinkingMode || 
+                                  gameState.thinkingUserId !== currentUser.id)}
                 >
                   +
                 </button>
                 <button 
-                  className={`operation-button ${gameState.currentOperation === 'subtract' ? 'active' : ''}`}
-                  onClick={() => handleOperationClick('subtract')}
-                  disabled={Boolean(!gameState.selectedCardId || (gameState.selectedCardId && gameState.cards[gameState.selectedCardId]?.selectedBy !== currentUser.id))}
+                  className={`operation-button ${gameState.currentOperation === 'add' ? 'active' : ''} ${(!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) ? 'blocked' : ''}`}
+                  onClick={() => handleOperationClick('add')}
+                  disabled={Boolean(!gameState.selectedCardId || 
+                                  (gameState.selectedCardId && gameState.cards[gameState.selectedCardId]?.selectedBy !== currentUser.id) ||
+                                  !gameState.thinkingMode || 
+                                  gameState.thinkingUserId !== currentUser.id)}
                 >
                   -
                 </button>
                 <button 
-                  className={`operation-button ${gameState.currentOperation === 'multiply' ? 'active' : ''}`}
-                  onClick={() => handleOperationClick('multiply')}
-                  disabled={Boolean(!gameState.selectedCardId || (gameState.selectedCardId && gameState.cards[gameState.selectedCardId]?.selectedBy !== currentUser.id))}
+                  className={`operation-button ${gameState.currentOperation === 'add' ? 'active' : ''} ${(!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) ? 'blocked' : ''}`}
+                  onClick={() => handleOperationClick('add')}
+                  disabled={Boolean(!gameState.selectedCardId || 
+                                  (gameState.selectedCardId && gameState.cards[gameState.selectedCardId]?.selectedBy !== currentUser.id) ||
+                                  !gameState.thinkingMode || 
+                                  gameState.thinkingUserId !== currentUser.id)}
                 >
-                  ×
+                  x
                 </button>
                 <button 
-                  className={`operation-button ${gameState.currentOperation === 'divide' ? 'active' : ''}`}
-                  onClick={() => handleOperationClick('divide')}
-                  disabled={Boolean(!gameState.selectedCardId || (gameState.selectedCardId && gameState.cards[gameState.selectedCardId]?.selectedBy !== currentUser.id))}
+                  className={`operation-button ${gameState.currentOperation === 'add' ? 'active' : ''} ${(!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) ? 'blocked' : ''}`}
+                  onClick={() => handleOperationClick('add')}
+                  disabled={Boolean(!gameState.selectedCardId || 
+                                  (gameState.selectedCardId && gameState.cards[gameState.selectedCardId]?.selectedBy !== currentUser.id) ||
+                                  !gameState.thinkingMode || 
+                                  gameState.thinkingUserId !== currentUser.id)}
                 >
                   ÷
                 </button>

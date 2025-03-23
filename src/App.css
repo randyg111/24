@@ -242,3 +242,106 @@ h1 {
   padding: 5px;
   border-bottom: 1px solid #eee;
 }
+
+.timer-container {
+  margin-top: 15px;
+  padding: 5px 15px;
+  background-color: #fff3e0;
+  border-radius: 20px;
+  display: inline-block;
+  border: 1px solid #ffe0b2;
+}
+
+.reset-timer {
+  font-weight: bold;
+  color: #f57c00;
+}
+
+/* Thinking time button styles */
+.thinking-button {
+  padding: 10px 20px;
+  background-color: #673ab7;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  margin: 15px 0;
+  transition: background-color 0.2s ease;
+}
+
+.thinking-button:hover:not(:disabled) {
+  background-color: #5e35b1;
+}
+
+.thinking-button:disabled {
+  background-color: #b0b0b0;
+  cursor: not-allowed;
+}
+
+/* Thinking mode indicator styles */
+.thinking-mode-container {
+  margin: 15px auto;
+  padding: 10px 20px;
+  background-color: #e8eaf6;
+  border: 2px solid #3f51b5;
+  border-radius: 8px;
+  display: inline-block;
+  animation: pulse 1.5s infinite;
+}
+
+.thinking-user {
+  font-weight: bold;
+  color: #3f51b5;
+}
+
+.thinking-timer {
+  font-weight: bold;
+  color: #f57c00;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(63, 81, 181, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(63, 81, 181, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(63, 81, 181, 0);
+  }
+}
+
+/* Add a visual indicator for blocked state */
+.card.blocked {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.operation-button.blocked {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Make the thinking button more noticeable */
+.thinking-button.pulse-animation {
+  animation: button-pulse 1.5s infinite;
+}
+
+@keyframes button-pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.thinking-instruction {
+  color: #3f51b5;
+  font-weight: bold;
+  margin-top: 5px;
+}
