@@ -739,27 +739,29 @@ function App() {
           </div>
           
           {gameState && gameState.gameActive && (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px' }}>
+            <div className="game-status-container">
               <div className="timer-container">
                 <p>Time left: <span className="reset-timer">{timeUntilReset}</span> seconds</p>
               </div>
 
-              {gameState.thinkingMode ? (
-                <div className="thinking-mode-container">
-                  <p>
-                    <span className="thinking-user">{gameState.thinkingUserName}</span> is thinking
-                    <span className="thinking-timer"> ({thinkingTimeLeft}s)</span>
-                  </p>
-                </div>
-              ) : (
-                <button 
-                  className="thinking-button"
-                  onClick={startThinkingTime}
-                  disabled={Boolean(gameState.thinkingMode)}
-                >
-                  Make 24 (10s)
-                </button>
-              )}
+              <div className="thinking-section">
+                {gameState.thinkingMode ? (
+                  <div className="thinking-mode-container">
+                    <p>
+                      <span className="thinking-user">{gameState.thinkingUserName}</span> is thinking
+                      <span className="thinking-timer"> ({thinkingTimeLeft}s)</span>
+                    </p>
+                  </div>
+                ) : (
+                  <button 
+                    className="thinking-button"
+                    onClick={startThinkingTime}
+                    disabled={Boolean(gameState.thinkingMode)}
+                  >
+                    Make 24 (10s)
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
