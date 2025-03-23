@@ -38,6 +38,12 @@ interface Card {
   selectedBy: string | null;
 }
 
+interface CardHistory {
+  id: string;
+  originalValue: number;
+  isRemoved: boolean;
+}
+
 interface GameState {
   cards: { [key: string]: Card };
   selectedCardId: string | null;
@@ -49,6 +55,8 @@ interface GameState {
   thinkingUserName?: string | null;
   timerEndTime: number | null; // Timestamp when the timer should end
   thinkingEndTime: number | null; // Timestamp when thinking time should end
+  cardHistory: CardHistory[]; // Track original cards and their values
+  gameWon: boolean; // Track if game has been won
 }
 
 interface Users {
@@ -73,10 +81,8 @@ function App() {
   const [debugMessages, setDebugMessages] = useState<string[]>([]);
   const [resetTimerId, setResetTimerId] = useState<NodeJS.Timeout | null>(null);
   const [timeUntilReset, setTimeUntilReset] = useState<number>(30);
-  const [thinkingMode, setThinkingMode] = useState<boolean>(false);
   const [thinkingTimeLeft, setThinkingTimeLeft] = useState<number>(10);
   const [thinkingTimerId, setThinkingTimerId] = useState<NodeJS.Timeout | null>(null);
-  const [gameTimerActive, setGameTimerActive] = useState<boolean>(false);
   const [savedTimeUntilReset, setSavedTimeUntilReset] = useState<number>(30);
 
   // Add this function to handle thinking time
@@ -106,7 +112,6 @@ function App() {
     }).then(() => {
       debugLog("Thinking mode activated");
       setThinkingTimeLeft(10);
-      setThinkingMode(true);
     }).catch(error => debugLog(`Error activating thinking mode: ${error.message}`));
   };
 
@@ -121,24 +126,78 @@ function App() {
       setThinkingTimerId(null);
     }
     
-    // Calculate new game timer end time based on saved time
-    const now = Date.now();
-    const newTimerEndTime = now + (savedTimeUntilReset * 1000);
+    // Check if player succeeded (one card with value 24)
+    const remainingCards = Object.values(gameState.cards);
+    const succeeded = remainingCards.length === 1 && Math.abs(remainingCards[0].value - 24) < 0.001;
     
-    // Update Firebase
-    update(ref(database, 'gameState'), { 
-      thinkingMode: false,
-      thinkingUserId: null,
-      thinkingUserName: null,
-      thinkingEndTime: null,
-      timerEndTime: newTimerEndTime
-    }).then(() => {
-      debugLog("Thinking mode deactivated, game timer restarted");
-      setThinkingMode(false);
-      setGameTimerActive(true);
-    }).catch(error => debugLog(`Error deactivating thinking mode: ${error.message}`));
+    if (succeeded) {
+      // Player succeeded - end game
+      debugLog("Player succeeded! Value is 24");
+      update(ref(database, 'gameState'), { 
+        thinkingMode: false,
+        thinkingUserId: null,
+        thinkingUserName: null,
+        thinkingEndTime: null,
+        gameActive: false,
+        gameWon: true
+      }).then(() => {
+        debugLog("Game won!");
+      }).catch(error => debugLog(`Error updating game state: ${error.message}`));
+    } else {
+      // Player failed - reset cards to original state
+      debugLog("Player failed to make 24. Resetting cards.");
+      resetCardsToOriginal();
+      
+      // Calculate new game timer end time based on saved time
+      const now = Date.now();
+      const newTimerEndTime = now + (savedTimeUntilReset * 1000);
+      
+      // Update Firebase
+      update(ref(database, 'gameState'), { 
+        thinkingMode: false,
+        thinkingUserId: null,
+        thinkingUserName: null,
+        thinkingEndTime: null,
+        timerEndTime: newTimerEndTime
+      }).then(() => {
+        debugLog("Thinking mode deactivated, game timer restarted");
+      }).catch(error => debugLog(`Error deactivating thinking mode: ${error.message}`));
+    }
   };
-  
+
+  const resetCardsToOriginal = (): void => {
+    if (!gameState) return;
+    
+    debugLog("Resetting cards to original values");
+    
+    const newCards: { [key: string]: Card } = {};
+    
+    // Recreate all cards with original values
+    gameState.cardHistory.forEach(historyCard => {
+      newCards[historyCard.id] = {
+        id: historyCard.id,
+        value: historyCard.originalValue,
+        selected: false,
+        selectedBy: null
+      };
+    });
+    
+    // Update Firebase with reset cards
+    update(ref(database, 'gameState'), {
+      cards: newCards,
+      selectedCardId: null,
+      currentOperation: null
+    }).then(() => {
+      debugLog("Cards reset to original values");
+    }).catch(error => debugLog(`Error resetting cards: ${error.message}`));
+  };
+
+  const isCardRemoved = (cardId: string): boolean => {
+    if (!gameState || !gameState.cardHistory) return false;
+    
+    const historyCard = gameState.cardHistory.find(card => card.id === cardId);
+    return historyCard ? historyCard.isRemoved : false;
+  };
 
   useEffect(() => {
     // Skip if no game state or user yet
@@ -294,7 +353,6 @@ function App() {
           
           setResetTimerId(newTimerId);
           setTimeUntilReset(30);
-          setGameTimerActive(true);
           debugLog("Immediate timer started with ID: " + newTimerId);
         })
         .catch(error => debugLog(`Error saving user: ${error.message}`));
@@ -319,16 +377,26 @@ function App() {
   const initializeGame = (): void => {
     const gameStateRef = ref(database, 'gameState');
     const cardsObj: { [key: string]: Card } = {};
+    const cardHistory: CardHistory[] = [];
     
     // Generate cards as before
     for (let i = 0; i < 4; i++) {
       const cardId = `card_${i}`;
+      const cardValue = Math.floor(Math.random() * 10) + 1; // 1-10
+      
       cardsObj[cardId] = {
         id: cardId,
-        value: Math.floor(Math.random() * 10) + 1, // 1-10
+        value: cardValue,
         selected: false,
         selectedBy: null
       };
+      
+      // Add to card history
+      cardHistory.push({
+        id: cardId,
+        originalValue: cardValue,
+        isRemoved: false
+      });
     }
     
     // Set timer end time 30 seconds from now
@@ -345,7 +413,9 @@ function App() {
       thinkingUserId: null,
       thinkingUserName: null,
       timerEndTime: timerEndTime,
-      thinkingEndTime: null
+      thinkingEndTime: null,
+      cardHistory: cardHistory,
+      gameWon: false
     };
     
     debugLog("Initializing new game with 4 cards");
@@ -354,7 +424,6 @@ function App() {
         debugLog("Game initialized successfully");
         setTimeUntilReset(30);
         setThinkingTimeLeft(10);
-        setThinkingMode(false);
       })
       .catch(error => debugLog(`Error initializing game: ${error.message}`));
   };
@@ -375,10 +444,8 @@ function App() {
       }
       
       // Reset timer states
-      setGameTimerActive(false);
       setTimeUntilReset(30);
       setThinkingTimeLeft(10);
-      setThinkingMode(false);
       
       // Initialize new game
       initializeGame();
@@ -433,7 +500,7 @@ function App() {
     }
     
     // First card selection (no card currently selected)
-    if (gameState.selectedCardId === undefined) {
+    if (!gameState.selectedCardId) {
       debugLog(`Selecting first card: ${cardId}`);
       
       // Update card in Firebase
@@ -452,7 +519,7 @@ function App() {
       setLocalSelectedCard(cardId);
     } 
     // Second card selection with operation
-    else if (gameState.currentOperation !== null && gameState.selectedCardId !== null && cardId !== gameState.selectedCardId) {
+    else if (gameState.currentOperation && cardId !== gameState.selectedCardId) {
       // Second card selection (perform operation)
       debugLog(`Performing ${gameState.currentOperation} with cards ${gameState.selectedCardId} and ${cardId}`);
       
@@ -463,16 +530,18 @@ function App() {
         debugLog("Cannot perform operation: missing card ID");
       }
     } 
-    // Replace first selection with a new card when no operation is selected
-    else if (gameState.currentOperation === null && gameState.selectedCardId !== null && cardId !== gameState.selectedCardId) {
-      debugLog(`Replacing selected card ${gameState.selectedCardId} with ${cardId}`);
+    // Switching to a different card without operation
+    else if (!gameState.currentOperation && cardId !== gameState.selectedCardId) {
+      debugLog(`Switching selection to card: ${cardId}`);
       
       // Deselect the previous card
-      update(ref(database, `gameState/cards/${gameState.selectedCardId}`), {
-        selected: false,
-        selectedBy: null
-      }).then(() => debugLog("Previous card deselected"))
-        .catch(error => debugLog(`Error deselecting previous card: ${error.message}`));
+      if (gameState.selectedCardId) {
+        update(ref(database, `gameState/cards/${gameState.selectedCardId}`), {
+          selected: false,
+          selectedBy: null
+        }).then(() => debugLog("Previous card deselected"))
+          .catch(error => debugLog(`Error deselecting previous card: ${error.message}`));
+      }
       
       // Select the new card
       update(ref(database, `gameState/cards/${cardId}`), {
@@ -541,7 +610,6 @@ function App() {
   };
 
   // Perform operation between two cards
-  // Perform operation between two cards
   const performOperation = (firstCardId: string, secondCardId: string, operation: Operation): void => {
     if (!currentUser || !gameState) {
       debugLog("Cannot perform operation: user not logged in or game state missing");
@@ -563,18 +631,18 @@ function App() {
         result = firstCard.value + secondCard.value;
         break;
       case 'subtract':
-        result = secondCard.value - firstCard.value;
+        result = firstCard.value - secondCard.value;
         break;
       case 'multiply':
         result = firstCard.value * secondCard.value;
         break;
       case 'divide':
         // Prevent division by zero
-        if (firstCard.value === 0) {
+        if (secondCard.value === 0) {
           debugLog("Cannot divide by zero");
           return;
         }
-        result = secondCard.value / firstCard.value;
+        result = firstCard.value / secondCard.value;
         // Round to 2 decimal places
         result = Math.round(result * 100) / 100;
         break;
@@ -593,6 +661,14 @@ function App() {
     }).then(() => debugLog("Second card updated with result and remains selected"))
       .catch(error => debugLog(`Error updating second card: ${error.message}`));
     
+    // Update card history - mark first card as removed
+    const updatedHistory = gameState.cardHistory.map(card => {
+      if (card.id === firstCardId) {
+        return { ...card, isRemoved: true };
+      }
+      return card;
+    });
+    
     // Remove the first card but preserve its ID to maintain position
     remove(ref(database, `gameState/cards/${firstCardId}`))
       .then(() => debugLog("First card removed"))
@@ -601,21 +677,25 @@ function App() {
     // Reset operation but keep the second card selected
     update(ref(database, 'gameState'), { 
       selectedCardId: secondCardId,
-      currentOperation: null 
+      currentOperation: null,
+      cardHistory: updatedHistory
     }).then(() => debugLog("Game state updated: operation reset, second card still selected"))
       .catch(error => debugLog(`Error updating game state: ${error.message}`));
     
     setLocalSelectedCard(secondCardId);
     
-    // Check if game is over (only one card remains)
-    const remainingCards = Object.keys(gameState.cards).filter(id => id !== firstCardId);
-    if (remainingCards.length === 1) {
-      debugLog("Game over - only one card remains");
-      update(ref(database, 'gameState'), { gameActive: false })
-        .then(() => debugLog("Game state updated to inactive"))
-        .catch(error => debugLog(`Error updating game activity: ${error.message}`));
+    // Check if game is won (only one card remains with value 24)
+    const remainingCards = Object.values(gameState.cards).filter(c => c.id !== firstCardId);
+    if (remainingCards.length === 1 && Math.abs(remainingCards[0].value - 24) < 0.001) {
+      debugLog("Game won! Final card value is 24");
+      update(ref(database, 'gameState'), { 
+        gameActive: false,
+        gameWon: true
+      })
+        .then(() => debugLog("Game state updated to won"))
+        .catch(error => debugLog(`Error updating game state: ${error.message}`));
     }
-  }
+  };
 
   // Listen for online users
   useEffect(() => {
@@ -780,8 +860,8 @@ function App() {
                   +
                 </button>
                 <button 
-                  className={`operation-button ${gameState.currentOperation === 'add' ? 'active' : ''} ${(!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) ? 'blocked' : ''}`}
-                  onClick={() => handleOperationClick('add')}
+                  className={`operation-button ${gameState.currentOperation === 'subtract' ? 'active' : ''} ${(!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) ? 'blocked' : ''}`}
+                  onClick={() => handleOperationClick('subtract')}
                   disabled={Boolean(!gameState.selectedCardId || 
                                   (gameState.selectedCardId && gameState.cards[gameState.selectedCardId]?.selectedBy !== currentUser.id) ||
                                   !gameState.thinkingMode || 
@@ -790,8 +870,8 @@ function App() {
                   -
                 </button>
                 <button 
-                  className={`operation-button ${gameState.currentOperation === 'add' ? 'active' : ''} ${(!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) ? 'blocked' : ''}`}
-                  onClick={() => handleOperationClick('add')}
+                  className={`operation-button ${gameState.currentOperation === 'multiply' ? 'active' : ''} ${(!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) ? 'blocked' : ''}`}
+                  onClick={() => handleOperationClick('multiply')}
                   disabled={Boolean(!gameState.selectedCardId || 
                                   (gameState.selectedCardId && gameState.cards[gameState.selectedCardId]?.selectedBy !== currentUser.id) ||
                                   !gameState.thinkingMode || 
@@ -800,8 +880,8 @@ function App() {
                   x
                 </button>
                 <button 
-                  className={`operation-button ${gameState.currentOperation === 'add' ? 'active' : ''} ${(!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) ? 'blocked' : ''}`}
-                  onClick={() => handleOperationClick('add')}
+                  className={`operation-button ${gameState.currentOperation === 'divide' ? 'active' : ''} ${(!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) ? 'blocked' : ''}`}
+                  onClick={() => handleOperationClick('divide')}
                   disabled={Boolean(!gameState.selectedCardId || 
                                   (gameState.selectedCardId && gameState.cards[gameState.selectedCardId]?.selectedBy !== currentUser.id) ||
                                   !gameState.thinkingMode || 
@@ -811,13 +891,9 @@ function App() {
                 </button>
               </div>
               
-              {!gameState.gameActive && Object.keys(gameState.cards).length === 1 && (
-                <div className="game-over">
-                  <h2>Game Over!</h2>
-                  <p>Final Value: {Object.values(gameState.cards)[0]?.value}</p>
-                  <button className="reset-button" onClick={resetGame}>
-                    Play Again
-                  </button>
+              {!gameState.gameActive && (
+                <div className={`game-over ${gameState.gameWon ? 'game-won' : 'game-lost'}`}>
+                  <h2>{gameState.gameWon ? 'You made 24! 🎉' : 'Game Over!'}</h2>
                 </div>
               )}
               
