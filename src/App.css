@@ -1,0 +1,244 @@
+.app {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: Arial, sans-serif;
+  text-align: center;
+}
+
+h1 {
+  color: #333;
+  margin-bottom: 30px;
+}
+
+/* Join form styles */
+.join-form {
+  margin: 20px auto;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+}
+
+.join-form input[type="text"] {
+  padding: 10px;
+  font-size: 16px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.join-form button {
+  padding: 10px 20px;
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+/* Online users section */
+.online-users {
+  margin: 20px 0;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background-color: #f9f9f9;
+}
+
+.users-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.user-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background-color: white;
+  border-radius: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.user-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+/* Card grid container - using a grid with fixed positions */
+.card-container {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 20px;
+  width: 400px;
+  height: 400px;
+  margin: 30px auto;
+  position: relative;
+}
+
+/* Card styles */
+.card {
+  background-color: white;
+  border: 3px solid #ddd;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  transition: all 0.3s ease;
+  font-size: 24px;
+  font-weight: bold;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+/* Explicitly position each card in the grid */
+.card:nth-child(1) {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.card:nth-child(2) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.card:nth-child(3) {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.card:nth-child(4) {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+}
+
+.card.selected-by-me {
+  border-color: #4caf50;
+  background-color: rgba(76, 175, 80, 0.1);
+}
+
+.card.selected-by-other {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.card-value {
+  font-size: 36px;
+  margin-bottom: 10px;
+}
+
+.selected-by {
+  font-size: 12px;
+  position: absolute;
+  bottom: 5px;
+  width: 100%;
+  text-align: center;
+}
+
+/* Game info section */
+.game-info {
+  margin: 20px 0;
+  padding: 10px;
+  background-color: #f0f0f0;
+  border-radius: 8px;
+  display: inline-block;
+}
+
+/* Operations buttons */
+.operations {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  margin: 20px 0;
+}
+
+.operation-button {
+  width: 50px;
+  height: 50px;
+  font-size: 24px;
+  border-radius: 50%;
+  border: none;
+  background-color: #2196f3;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  transition: background-color 0.2s ease;
+}
+
+.operation-button:hover:not(:disabled) {
+  background-color: #0b7dda;
+}
+
+.operation-button:disabled {
+  background-color: #b0b0b0;
+  cursor: not-allowed;
+}
+
+.operation-button.active {
+  background-color: #ff9800;
+  box-shadow: 0 2px 8px rgba(255, 152, 0, 0.4);
+}
+
+/* Reset button */
+.reset-button {
+  padding: 10px 20px;
+  background-color: #f44336;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  margin-top: 20px;
+}
+
+.reset-button:hover {
+  background-color: #d32f2f;
+}
+
+/* Game over section */
+.game-over {
+  margin: 20px 0;
+  padding: 20px;
+  background-color: #e8f5e9;
+  border-radius: 8px;
+  border: 2px solid #4caf50;
+}
+
+/* Debug panel */
+.debug-panel {
+  margin-top: 30px;
+  padding: 10px;
+  background-color: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.debug-messages {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 10px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.debug-message {
+  padding: 5px;
+  border-bottom: 1px solid #eee;
+}
