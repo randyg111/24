@@ -33,14 +33,16 @@ interface User {
 
 interface Card {
   id: string;
-  value: number;
   selected: boolean;
   selectedBy: string | null;
+  num: number;
+  denom: number;
 }
 
 interface CardHistory {
   id: string;
-  originalValue: number;
+  num: number;
+  denom: number;
   isRemoved: boolean;
 }
 
@@ -75,7 +77,6 @@ function App() {
   const [userColor, setUserColor] = useState<string>('#' + Math.floor(Math.random()*16777215).toString(16));
   const [onlineUsers, setOnlineUsers] = useState<Users>({});
   const [gameState, setGameState] = useState<GameState | null>(null);
-  const [localSelectedCard, setLocalSelectedCard] = useState<string | null>(null);
   const [resetTimerId, setResetTimerId] = useState<NodeJS.Timeout | null>(null);
   const [timeUntilReset, setTimeUntilReset] = useState<number>(30);
   const [thinkingTimeLeft, setThinkingTimeLeft] = useState<number>(10);
@@ -119,7 +120,7 @@ function App() {
     
     // Check if player succeeded (one card with value 24)
     const remainingCards = Object.values(gameState.cards);
-    const succeeded = remainingCards.length === 1 && Math.abs(remainingCards[0].value - 24) < 0.001;
+    const succeeded = remainingCards.length === 1 && Math.abs(remainingCards[0].num/remainingCards[0].denom - 24) < 0.001;
     
     if (succeeded) {
       // Player succeeded - end game
@@ -159,7 +160,8 @@ function App() {
     gameState.cardHistory.forEach(historyCard => {
       newCards[historyCard.id] = {
         id: historyCard.id,
-        value: historyCard.originalValue,
+        num: historyCard.num,
+        denom: historyCard.denom,
         selected: false,
         selectedBy: null
       };
@@ -211,7 +213,11 @@ function App() {
         
         // If timer expired, reset the game (but only do this once)
         if (secondsLeft === 0 && gameState.timerEndTime > now - 1000) {
-          resetGame();
+          // resetGame();
+          update(ref(database, 'gameState'), { 
+            gameActive: false,
+            gameWon: false
+          });
         }
       }
       
@@ -322,7 +328,8 @@ function App() {
       
       cardsObj[cardId] = {
         id: cardId,
-        value: cardValue,
+        num: cardValue,
+        denom: 1,
         selected: false,
         selectedBy: null
       };
@@ -330,7 +337,8 @@ function App() {
       // Add to card history
       cardHistory.push({
         id: cardId,
-        originalValue: cardValue,
+        num: cardValue,
+        denom: 1,
         isRemoved: false
       });
     }
@@ -414,7 +422,6 @@ function App() {
         currentOperation: null 
       });
       
-      setLocalSelectedCard(null);
       return;
     }
     
@@ -431,7 +438,6 @@ function App() {
         selectedCardId: cardId 
       });
       
-      setLocalSelectedCard(cardId);
     } 
     // Second card selection with operation
     else if (gameState.currentOperation && cardId !== gameState.selectedCardId) {
@@ -461,7 +467,6 @@ function App() {
         selectedCardId: cardId 
       });
       
-      setLocalSelectedCard(cardId);
     }
     // Deselect case
     else if (cardId === gameState.selectedCardId && card.selectedBy === currentUser.id) {
@@ -477,7 +482,6 @@ function App() {
         currentOperation: null 
       });
       
-      setLocalSelectedCard(null);
     }
   };
 
@@ -501,6 +505,10 @@ function App() {
     update(ref(database, 'gameState'), { currentOperation: operation });
   };
 
+  const gcd = (a: number, b: number): number => {
+    return a % b == 0 ? b : gcd(b, b % a);
+  };
+
   // Perform operation between two cards
   const performOperation = (firstCardId: string, secondCardId: string, operation: Operation): void => {
     if (!currentUser || !gameState) {
@@ -514,34 +522,37 @@ function App() {
       return;
     }
     
-    let result: number;
+    let rnum: number;
+    let rdenom: number;
     
     switch(operation) {
       case 'add':
-        result = firstCard.value + secondCard.value;
+        rnum = firstCard.num * secondCard.denom + firstCard.denom * secondCard.num;
+        rdenom = firstCard.denom * secondCard.denom;
         break;
       case 'subtract':
-        result = firstCard.value - secondCard.value;
+        rnum = firstCard.num * secondCard.denom - firstCard.denom * secondCard.num;
+        rdenom = firstCard.denom * secondCard.denom;
         break;
       case 'multiply':
-        result = firstCard.value * secondCard.value;
+        rnum = firstCard.num * secondCard.num;
+        rdenom = firstCard.denom * secondCard.denom;
         break;
       case 'divide':
-        // Prevent division by zero
-        if (secondCard.value === 0) {
-          return;
-        }
-        result = firstCard.value / secondCard.value;
-        // Round to 2 decimal places
-        result = Math.round(result * 100) / 100;
+        rnum = firstCard.num * secondCard.denom;
+        rdenom = firstCard.denom * secondCard.num;
         break;
       default:
         return;
     }
+    const d = gcd(rnum, rdenom);
+    rnum /= d;
+    rdenom /= d;
     
     // Update the second card with the result, but keep it selected
     update(ref(database, `gameState/cards/${secondCardId}`), {
-      value: result,
+      num: rnum,
+      denom: rdenom,
       selected: true,
       selectedBy: currentUser.id
     });
@@ -564,11 +575,10 @@ function App() {
       cardHistory: updatedHistory
     });
     
-    setLocalSelectedCard(secondCardId);
     
     // Check if game is won (only one card remains with value 24)
     const remainingCards = Object.values(gameState.cards).filter(c => c.id !== firstCardId);
-    if (remainingCards.length === 1 && Math.abs(remainingCards[0].value - 24) < 0.001) {
+    if (remainingCards.length === 1 && Math.abs(rnum/rdenom - 24) < 0.001) {
       update(ref(database, 'gameState'), { 
         gameActive: false,
         gameWon: true
@@ -612,6 +622,89 @@ function App() {
     };
   }, []);
 
+  const solve = (): number[] => {
+    const dq: number[] = [];
+    if (recurse([gameState!.cardHistory[0].num, gameState!.cardHistory[1].num, gameState!.cardHistory[2].num, gameState!.cardHistory[3].num], dq, 24)) {
+        return dq;
+    }
+    return [];
+  }
+
+  const recurse = (nums: number[], dq: number[], x: number): boolean => {
+      if (dq.length === 7) {
+          return Math.abs(calc(dq) - x) < 1e-6;
+      }
+      if (dq.length + 2 * nums.length < 7) {
+          for (let i = -1; i >= -4; i--) {
+              dq.push(i);
+              if (recurse(nums, dq, x)) return true;
+              dq.pop();
+          }
+      }
+      for (let i = 0; i < nums.length; i++) {
+          const num = nums.splice(i, 1)[0];
+          dq.push(num);
+          if (recurse(nums, dq, x)) return true;
+          dq.pop();
+          nums.splice(i, 0, num);
+      }
+      return false;
+  }
+
+  const calc = (dq: number[]): number => {
+      const stack: number[] = [];
+      for (const i of dq) {
+          if (i > 0) {
+              stack.push(i);
+              continue;
+          }
+          const b = stack.pop()!, a = stack.pop()!;
+          switch (i) {
+              case -1:
+                  stack.push(a + b);
+                  break;
+              case -2:
+                  stack.push(a - b);
+                  break;
+              case -3:
+                  stack.push(a * b);
+                  break;
+              case -4:
+                  stack.push(a / b);
+                  break;
+          }
+      }
+      if (stack.length === 0) return 0;
+      return stack[stack.length - 1];
+  }
+
+  const convert = (dq: number[]): string => {
+    if (dq.length == 0) return "No solution.";
+    const stack: string[] = [];
+    for (const i of dq) {
+        if (i > 0) {
+            stack.push(i.toString());
+            continue;
+        }
+        const b = stack.pop(), a = stack.pop();
+        switch (i) {
+            case -1:
+                stack.push(`(${a} + ${b})`);
+                break;
+            case -2:
+                stack.push(`(${a} - ${b})`);
+                break;
+            case -3:
+                stack.push(`(${a} * ${b})`);
+                break;
+            case -4:
+                stack.push(`(${a} / ${b})`);
+                break;
+        }
+    }
+    return stack[stack.length - 1] + " = 24";
+  }
+
   return (
     <div className="app">
       <h1>24 Game</h1>
@@ -646,13 +739,11 @@ function App() {
           </div>
           
           {gameState && gameState.gameActive && (
-            <div className="timer-container">
-              <p>Game resets in: <span className="reset-timer">{timeUntilReset}</span> seconds</p>
-            </div>
-          )}
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px' }}>
+              <div className="timer-container">
+                <p>Time left: <span className="reset-timer">{timeUntilReset}</span> seconds</p>
+              </div>
 
-          {gameState && gameState.gameActive && (
-            <>
               {gameState.thinkingMode ? (
                 <div className="thinking-mode-container">
                   <p>
@@ -666,10 +757,10 @@ function App() {
                   onClick={startThinkingTime}
                   disabled={Boolean(gameState.thinkingMode)}
                 >
-                  Take Thinking Time (10s)
+                  Make 24 (10s)
                 </button>
               )}
-            </>
+            </div>
           )}
 
           {gameState ? (
@@ -700,7 +791,7 @@ function App() {
                         cursor: (!gameState.thinkingMode || gameState.thinkingUserId !== currentUser.id) ? 'not-allowed' : 'pointer'
                       }}
                     >
-                      <span className="card-value">{card.value}</span>
+                      <span className="card-value">{Math.round((card.num / card.denom) * 100) / 100}</span>
                       {isSelectedByOther && selectingUser && (
                         <div className="selected-by" style={{ color: selectingUser.color }}>
                           Selected by {selectingUser.name}
@@ -756,13 +847,16 @@ function App() {
               
               {!gameState.gameActive && (
                 <div className={`game-over ${gameState.gameWon ? 'game-won' : 'game-lost'}`}>
-                  <h2>{gameState.gameWon ? 'You made 24! 🎉' : 'Game Over!'}</h2>
+                  <h2>{gameState.gameWon ? 'You made 24! 🎉' : 'Game Over! ' + convert(solve())}</h2>
+                  <button className="reset-button" onClick={resetGame}>
+                  New Game
+                  </button>
                 </div>
               )}
-              
-              <button className="reset-button" onClick={resetGame}>
+
+              {/* <button className="reset-button" onClick={resetGame}>
                 {gameState.gameActive ? 'Reset Game' : 'New Game'}
-              </button>
+              </button> */}
             </>
           ) : (
             <p>Loading game state...</p>

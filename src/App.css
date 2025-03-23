@@ -27,14 +27,39 @@ h1 {
   border-radius: 4px;
 }
 
-.join-form button {
+/* Button styles */
+.join-form button,
+.reset-button,
+.thinking-button {
   padding: 10px 20px;
-  background-color: #4caf50;
   color: white;
   border: none;
   border-radius: 4px;
   cursor: pointer;
   font-size: 16px;
+  transition: background-color 0.2s ease;
+}
+
+.join-form button {
+  background-color: #4caf50;
+}
+
+.reset-button {
+  background-color: #f44336;
+  margin-top: 20px;
+}
+
+.reset-button:hover {
+  background-color: #d32f2f;
+}
+
+.thinking-button {
+  background-color: #673ab7;
+  margin: 15px 0;
+}
+
+.thinking-button:hover:not(:disabled) {
+  background-color: #5e35b1;
 }
 
 /* Online users section */
@@ -69,7 +94,7 @@ h1 {
   border-radius: 50%;
 }
 
-/* Card grid container - using a grid with fixed positions */
+/* Card grid container */
 .card-container {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -78,7 +103,6 @@ h1 {
   width: 400px;
   height: 400px;
   margin: 30px auto;
-  position: relative;
 }
 
 /* Card styles */
@@ -100,28 +124,7 @@ h1 {
   position: relative;
 }
 
-/* Explicitly position each card in the grid */
-.card:nth-child(1) {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.card:nth-child(2) {
-  grid-column: 2;
-  grid-row: 1;
-}
-
-.card:nth-child(3) {
-  grid-column: 1;
-  grid-row: 2;
-}
-
-.card:nth-child(4) {
-  grid-column: 2;
-  grid-row: 2;
-}
-
-.card:hover {
+.card:hover:not(.blocked) {
   transform: translateY(-5px);
   box-shadow: 0 6px 12px rgba(0,0,0,0.15);
 }
@@ -148,15 +151,6 @@ h1 {
   text-align: center;
 }
 
-/* Game info section */
-.game-info {
-  margin: 20px 0;
-  padding: 10px;
-  background-color: #f0f0f0;
-  border-radius: 8px;
-  display: inline-block;
-}
-
 /* Operations buttons */
 .operations {
   display: flex;
@@ -181,34 +175,13 @@ h1 {
   transition: background-color 0.2s ease;
 }
 
-.operation-button:hover:not(:disabled) {
+.operation-button:hover:not(:disabled):not(.blocked) {
   background-color: #0b7dda;
-}
-
-.operation-button:disabled {
-  background-color: #b0b0b0;
-  cursor: not-allowed;
 }
 
 .operation-button.active {
   background-color: #ff9800;
   box-shadow: 0 2px 8px rgba(255, 152, 0, 0.4);
-}
-
-/* Reset button */
-.reset-button {
-  padding: 10px 20px;
-  background-color: #f44336;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 16px;
-  margin-top: 20px;
-}
-
-.reset-button:hover {
-  background-color: #d32f2f;
 }
 
 /* Game over section */
@@ -220,29 +193,7 @@ h1 {
   border: 2px solid #4caf50;
 }
 
-/* Debug panel */
-.debug-panel {
-  margin-top: 30px;
-  padding: 10px;
-  background-color: #f5f5f5;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  text-align: left;
-}
-
-.debug-messages {
-  max-height: 200px;
-  overflow-y: auto;
-  margin-top: 10px;
-  font-family: monospace;
-  font-size: 12px;
-}
-
-.debug-message {
-  padding: 5px;
-  border-bottom: 1px solid #eee;
-}
-
+/* Timer styles */
 .timer-container {
   margin-top: 15px;
   padding: 5px 15px;
@@ -255,28 +206,6 @@ h1 {
 .reset-timer {
   font-weight: bold;
   color: #f57c00;
-}
-
-/* Thinking time button styles */
-.thinking-button {
-  padding: 10px 20px;
-  background-color: #673ab7;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 16px;
-  margin: 15px 0;
-  transition: background-color 0.2s ease;
-}
-
-.thinking-button:hover:not(:disabled) {
-  background-color: #5e35b1;
-}
-
-.thinking-button:disabled {
-  background-color: #b0b0b0;
-  cursor: not-allowed;
 }
 
 /* Thinking mode indicator styles */
@@ -312,13 +241,15 @@ h1 {
   }
 }
 
-/* Add a visual indicator for blocked state */
-.card.blocked {
+/* Disabled/blocked state */
+.blocked,
+.operation-button:disabled,
+.thinking-button:disabled {
   opacity: 0.7;
   cursor: not-allowed;
 }
 
-.operation-button.blocked {
-  opacity: 0.7;
-  cursor: not-allowed;
+.operation-button:disabled,
+.thinking-button:disabled {
+  background-color: #b0b0b0;
 }
