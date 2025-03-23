@@ -29,6 +29,7 @@ interface User {
   name: string;
   color: string;
   lastActive: object | null;
+  score: number; // Added score property
 }
 
 interface Card {
@@ -59,6 +60,7 @@ interface GameState {
   thinkingEndTime: number | null;
   cardHistory: CardHistory[];
   gameWon: boolean;
+  lastWinner: string | null; // Added to track the last winner
 }
 
 interface Users {
@@ -130,7 +132,15 @@ function App() {
         thinkingUserName: null,
         thinkingEndTime: null,
         gameActive: false,
-        gameWon: true
+        gameWon: true,
+        lastWinner: currentUser.id // Track the winner's ID
+      });
+      
+      // Update player score
+      currentUser.score++;
+      const userRef = ref(database, `users/${currentUser.id}`);
+      update(userRef, {
+        score: currentUser.score
       });
     } else {
       // Player failed - reset cards to original state
@@ -272,7 +282,8 @@ function App() {
         id: userId,
         name: username,
         color: userColor,
-        lastActive: serverTimestamp()
+        lastActive: serverTimestamp(),
+        score: 0 // Initialize score to 0
       };
   
       // Save user to Firebase
@@ -359,7 +370,8 @@ function App() {
       timerEndTime: timerEndTime,
       thinkingEndTime: null,
       cardHistory: cardHistory,
-      gameWon: false
+      gameWon: false,
+      lastWinner: null // Initialize lastWinner to null
     };
     
     set(gameStateRef, initialGameState)
@@ -581,7 +593,15 @@ function App() {
     if (remainingCards.length === 1 && Math.abs(rnum/rdenom - 24) < 0.001) {
       update(ref(database, 'gameState'), { 
         gameActive: false,
-        gameWon: true
+        gameWon: true,
+        lastWinner: currentUser.id
+      });
+      
+      // Update player score on winning
+      currentUser.score++;
+      const userRef = ref(database, `users/${currentUser.id}`);
+      update(userRef, {
+        score: currentUser.score
       });
     }
   };
@@ -705,6 +725,12 @@ function App() {
     return stack[stack.length - 1] + " = 24";
   }
 
+  // Get winner name from winner ID
+  const getWinnerName = (winnerId: string | null): string => {
+    if (!winnerId || !onlineUsers[winnerId]) return "Unknown";
+    return onlineUsers[winnerId].name;
+  };
+
   return (
     <div className="app">
       <h1>24 Game</h1>
@@ -732,7 +758,10 @@ function App() {
               {Object.values(onlineUsers).map(user => (
                 <div key={user.id} className="user-item">
                   <span className="user-dot" style={{ backgroundColor: user.color }}></span>
-                  <span>{user.name} {user.id === currentUser.id ? '(You)' : ''}</span>
+                  <span>
+                    {user.name} {user.id === currentUser.id ? '(You)' : ''}
+                    <span className="user-score">{user.score > 0 ? ` - ${user.score} ${user.score === 1 ? 'point' : 'points'}` : ''}</span>
+                  </span>
                 </div>
               ))}
             </div>
@@ -849,7 +878,7 @@ function App() {
               
               {!gameState.gameActive && (
                 <div className={`game-over ${gameState.gameWon ? 'game-won' : 'game-lost'}`}>
-                  <h2>{gameState.gameWon ? 'You made 24! 🎉' : 'Game Over! ' + convert(solve())}</h2>
+                  <h2>{gameState.gameWon ? (gameState.lastWinner == currentUser.id ? 'You made 24! 🎉' : getWinnerName(gameState.lastWinner) + ' made 24!') : 'Game Over! ' + convert(solve())}</h2>
                   <button className="reset-button" onClick={resetGame}>
                   New Game
                   </button>
