@@ -111,6 +111,7 @@ function App() {
     setThinkingTimeLeft(10);
   };
 
+  // Modify the endThinkingTime function
   const endThinkingTime = (): void => {
     if (!currentUser || !gameState) return;
     
@@ -126,22 +127,26 @@ function App() {
     
     if (succeeded) {
       // Player succeeded - end game
-      update(ref(database, 'gameState'), { 
-        thinkingMode: false,
-        thinkingUserId: null,
-        thinkingUserName: null,
-        thinkingEndTime: null,
-        gameActive: false,
-        gameWon: true,
-        lastWinner: currentUser.id // Track the winner's ID
+      
+      // Update player score directly in Firebase, don't modify local state first
+      const userRef = ref(database, `users/${currentUser.id}`);
+      const newScore = currentUser.score += 1;
+      
+      update(userRef, {
+        score: newScore
+      }).then(() => {
+        // After score is updated, update game state
+        update(ref(database, 'gameState'), { 
+          thinkingMode: false,
+          thinkingUserId: null,
+          thinkingUserName: null,
+          thinkingEndTime: null,
+          gameActive: false,
+          gameWon: true,
+          lastWinner: currentUser.id // Track the winner's ID
+        });
       });
       
-      // Update player score
-      currentUser.score++;
-      const userRef = ref(database, `users/${currentUser.id}`);
-      update(userRef, {
-        score: currentUser.score
-      });
     } else {
       // Player failed - reset cards to original state
       resetCardsToOriginal();
@@ -591,17 +596,19 @@ function App() {
     // Check if game is won (only one card remains with value 24)
     const remainingCards = Object.values(gameState.cards).filter(c => c.id !== firstCardId);
     if (remainingCards.length === 1 && Math.abs(rnum/rdenom - 24) < 0.001) {
-      update(ref(database, 'gameState'), { 
-        gameActive: false,
-        gameWon: true,
-        lastWinner: currentUser.id
-      });
-      
-      // Update player score on winning
-      currentUser.score++;
+      // Update player score directly in Firebase, don't modify local state first
       const userRef = ref(database, `users/${currentUser.id}`);
+      const newScore = currentUser.score += 1;
+      
       update(userRef, {
-        score: currentUser.score
+        score: newScore
+      }).then(() => {
+        // After score is updated, update game state
+        update(ref(database, 'gameState'), { 
+          gameActive: false,
+          gameWon: true,
+          lastWinner: currentUser.id
+        });
       });
     }
   };
@@ -880,7 +887,7 @@ function App() {
                 <div className={`game-over ${gameState.gameWon ? 'game-won' : 'game-lost'}`}>
                   <h2>{gameState.gameWon ? (gameState.lastWinner == currentUser.id ? 'You made 24! 🎉' : getWinnerName(gameState.lastWinner) + ' made 24!') : 'Game Over! ' + convert(solve())}</h2>
                   <button className="reset-button" onClick={resetGame}>
-                  New Game
+                    New Game
                   </button>
                 </div>
               )}
