@@ -23,13 +23,12 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-// Define types for our data model
 interface User {
   id: string;
   name: string;
   color: string;
   lastActive: object | null;
-  score: number; // Added score property
+  score: number;
 }
 
 interface Card {
@@ -44,7 +43,6 @@ interface CardHistory {
   id: string;
   num: number;
   denom: number;
-  isRemoved: boolean;
 }
 
 interface GameState {
@@ -60,7 +58,7 @@ interface GameState {
   thinkingEndTime: number | null;
   cardHistory: CardHistory[];
   gameWon: boolean;
-  lastWinner: string | null; // Added to track the last winner
+  lastWinner: string | null;
 }
 
 interface Users {
@@ -194,19 +192,6 @@ function App() {
     // Skip if no game state or user yet
     if (!gameState || !currentUser) return;
   
-    // Clean up on unmount or when game becomes inactive
-    if (!gameState.gameActive) {
-      if (resetTimerId) {
-        clearInterval(resetTimerId);
-        setResetTimerId(null);
-      }
-      if (thinkingTimerId) {
-        clearInterval(thinkingTimerId);
-        setThinkingTimerId(null);
-      }
-      return;
-    }
-  
     // Clear any existing timers
     if (resetTimerId) {
       clearInterval(resetTimerId);
@@ -216,6 +201,8 @@ function App() {
       clearInterval(thinkingTimerId);
       setThinkingTimerId(null);
     }
+
+    if (!gameState.gameActive) return;
   
     // Start a single timer that updates both countdown displays
     const timerId = setInterval(() => {
@@ -226,9 +213,8 @@ function App() {
         const secondsLeft = Math.max(0, Math.ceil((gameState.timerEndTime - now) / 1000));
         setTimeUntilReset(secondsLeft);
         
-        // If timer expired, reset the game (but only do this once)
+        // If timer expired, reset the game
         if (secondsLeft === 0 && gameState.timerEndTime > now - 1000) {
-          // resetGame();
           update(ref(database, 'gameState'), { 
             gameActive: false,
             gameWon: false
@@ -241,7 +227,7 @@ function App() {
         const thinkingSecondsLeft = Math.max(0, Math.ceil((gameState.thinkingEndTime - now) / 1000));
         setThinkingTimeLeft(thinkingSecondsLeft);
         
-        // If thinking timer expired, end thinking time (but only do this once)
+        // If thinking timer expired, end thinking time
         if (thinkingSecondsLeft === 0 && gameState.thinkingEndTime > now - 1000) {
           if (gameState.thinkingUserId === currentUser.id) {
             endThinkingTime();
@@ -280,7 +266,7 @@ function App() {
   };
 
   // Join collaboration session
-  const joinCollaboration = (): void => {
+  const joinGame = (): void => {
     if (username.trim()) {
       const userId = 'user_' + Date.now();
       const user: User = {
@@ -288,7 +274,7 @@ function App() {
         name: username,
         color: userColor,
         lastActive: serverTimestamp(),
-        score: 0 // Initialize score to 0
+        score: 0
       };
   
       // Save user to Firebase
@@ -354,8 +340,7 @@ function App() {
       cardHistory.push({
         id: cardId,
         num: cardValue,
-        denom: 1,
-        isRemoved: false
+        denom: 1
       });
     }
     
@@ -376,7 +361,7 @@ function App() {
       thinkingEndTime: null,
       cardHistory: cardHistory,
       gameWon: false,
-      lastWinner: null // Initialize lastWinner to null
+      lastWinner: null
     };
     
     set(gameStateRef, initialGameState)
@@ -421,24 +406,6 @@ function App() {
     
     const card = gameState.cards[cardId];
     if (!card) {
-      return;
-    }
-    
-    // Card is already selected by someone else
-    if (card.selected && card.selectedBy && card.selectedBy !== currentUser.id) {
-      return;
-    }
-    
-    // Check for inconsistent state and reset if needed
-    if ((gameState.selectedCardId && !gameState.cards[gameState.selectedCardId]) || 
-        (gameState.currentOperation && !gameState.selectedCardId)) {
-      
-      // Reset Firebase game state
-      update(ref(database, 'gameState'), { 
-        selectedCardId: null, 
-        currentOperation: null 
-      });
-      
       return;
     }
     
@@ -513,12 +480,6 @@ function App() {
       return;
     }
     
-    // Check if the selected card belongs to this user
-    const selectedCard = gameState.cards[gameState.selectedCardId];
-    if (!selectedCard || selectedCard.selectedBy !== currentUser.id) {
-      return;
-    }
-    
     update(ref(database, 'gameState'), { currentOperation: operation });
   };
 
@@ -566,20 +527,12 @@ function App() {
     rnum /= d;
     rdenom /= d;
     
-    // Update the second card with the result, but keep it selected
+    // Update the second card with the result
     update(ref(database, `gameState/cards/${secondCardId}`), {
       num: rnum,
       denom: rdenom,
       selected: true,
       selectedBy: currentUser.id
-    });
-    
-    // Update card history - mark first card as removed
-    const updatedHistory = gameState.cardHistory.map(card => {
-      if (card.id === firstCardId) {
-        return { ...card, isRemoved: true };
-      }
-      return card;
     });
     
     // Remove the first card but preserve its ID to maintain position
@@ -588,15 +541,13 @@ function App() {
     // Reset operation but keep the second card selected
     update(ref(database, 'gameState'), { 
       selectedCardId: secondCardId,
-      currentOperation: null,
-      cardHistory: updatedHistory
+      currentOperation: null
     });
-    
     
     // Check if game is won (only one card remains with value 24)
     const remainingCards = Object.values(gameState.cards).filter(c => c.id !== firstCardId);
-    if (remainingCards.length === 1 && Math.abs(rnum/rdenom - 24) < 0.001) {
-      // Update player score directly in Firebase, don't modify local state first
+    if (remainingCards.length === 1 && rnum / rdenom == 24) {
+      // Update player score directly in Firebase
       const userRef = ref(database, `users/${currentUser.id}`);
       const newScore = currentUser.score += 1;
       
@@ -651,7 +602,8 @@ function App() {
 
   const solve = (): number[] => {
     const dq: number[] = [];
-    if (recurse([gameState!.cardHistory[0].num, gameState!.cardHistory[1].num, gameState!.cardHistory[2].num, gameState!.cardHistory[3].num], dq, 24)) {
+    if (recurse([gameState!.cardHistory[0].num, gameState!.cardHistory[1].num,
+       gameState!.cardHistory[2].num, gameState!.cardHistory[3].num], dq, 24)) {
         return dq;
     }
     return [];
@@ -755,7 +707,7 @@ function App() {
             value={userColor}
             onChange={(e) => setUserColor(e.target.value)}
           />
-          <button onClick={joinCollaboration}>Join Game</button>
+          <button onClick={joinGame}>Join Game</button>
         </div>
       ) : (
         <>
@@ -891,10 +843,6 @@ function App() {
                   </button>
                 </div>
               )}
-
-              {/* <button className="reset-button" onClick={resetGame}>
-                {gameState.gameActive ? 'Reset Game' : 'New Game'}
-              </button> */}
             </>
           ) : (
             <p>Loading game state...</p>
